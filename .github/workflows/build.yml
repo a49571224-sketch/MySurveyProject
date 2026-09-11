@@ -23,8 +23,9 @@ jobs:
           flutter-version: '3.19.x'
           channel: 'stable'
 
-      - name: Initialize Project Structure
+      - name: Fix Project Name and Initialize
         run: |
+          sed -i 's/^name:.*/name: mysurveyproject/' pubspec.yaml
           flutter create . --org com.mysurvey --platforms=android --overwrite
 
       - name: Install dependencies
@@ -38,4 +39,3 @@ jobs:
         with:
           name: app-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
-          

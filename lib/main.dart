@@ -4,6 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() {
   runApp(const ElectricalSurveyApp());
@@ -16,7 +18,7 @@ class ElectricalSurveyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'تطبيق مسح الشبكات الميداني',
+      title: 'OZsurvey',
       theme: ThemeData(
         primarySwatch: Colors.blueGrey,
       ),
@@ -29,7 +31,7 @@ class SurveyMarker {
   final String id;
   final LatLng point;
   String title;
-  String type; // 'pole' أو 'panel'
+  String type; // 'common', 'csp', 'hub'
   String notes;
   String? imagePath;
 
@@ -53,13 +55,14 @@ class MapHomePage extends StatefulWidget {
 class _MapHomePageState extends State<MapHomePage> {
   final MapController _mapController = MapController();
   
-  LatLng _currentCenter = const LatLng(14.7979, 42.9545);
-  final double _currentZoom = 15.0;
+  LatLng _currentCenter = const LatLng(15.3694, 44.1910); // إحداثيات صنعاء الافتراضية
+  final double _currentZoom = 14.0;
 
   final List<SurveyMarker> _markers = [];
-  bool _showPoles = true;
-  bool _showPanels = true;
+  String _selectedTool = 'common'; // الأدوات: common, csp, hub
+  bool _showMarkers = true;
   final ImagePicker _picker = ImagePicker();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -89,9 +92,38 @@ class _MapHomePageState extends State<MapHomePage> {
     });
   }
 
+  Future<void> _exportToCSV() async {
+    if (_markers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا توجد بيانات لتصديرها بعد!')),
+      );
+      return;
+    }
+
+    try {
+      StringBuffer csvContent = StringBuffer();
+      csvContent.writeln('ID,Title,Type,Latitude,Longitude,Notes');
+
+      for (var m in _markers) {
+        csvContent.writeln('${m.id},"${m.title}",${m.type},${m.point.latitude},${m.point.longitude},"${m.notes}"');
+      }
+
+      final directory = await getApplicationDocumentsDirectory();
+      final path = '${directory.path}/ozsurvey_data.csv';
+      final file = File(path);
+      await file.writeAsString(csvContent.toString());
+
+      await Share.shareXFiles([XFile(path)], text: 'تقرير مسح الشبكة الكهربائية');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('حدث خطأ أثناء التصدير: $e')),
+      );
+    }
+  }
+
   void _showMarkerDialog({SurveyMarker? existingMarker, LatLng? tappedPoint}) {
-    String title = existingMarker?.title ?? 'عنصر جديد';
-    String type = existingMarker?.type ?? 'pole';
+    String title = existingMarker?.title ?? (_selectedTool.toUpperCase() + ' جديد');
+    String type = existingMarker?.type ?? _selectedTool;
     String notes = existingMarker?.notes ?? '';
     String? imagePath = existingMarker?.imagePath;
 
@@ -101,13 +133,13 @@ class _MapHomePageState extends State<MapHomePage> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text(existingMarker == null ? 'إضافة نقطة ميدانية جديدة' : 'تعديل أو حذف العنصر'),
+              title: Text(existingMarker == null ? 'إضافة نقطة [$type]' : 'تعديل أو حذف العنصر'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
-                      decoration: const InputDecoration(labelText: 'اسم العنصر أو رقمه'),
+                      decoration: const InputDecoration(labelText: 'اسم أو رقم العنصر'),
                       controller: TextEditingController(text: title),
                       onChanged: (val) => title = val,
                     ),
@@ -116,8 +148,9 @@ class _MapHomePageState extends State<MapHomePage> {
                       value: type,
                       decoration: const InputDecoration(labelText: 'نوع العنصر'),
                       items: const [
-                        DropdownMenuItem(value: 'pole', child: Text('عمود كهرباء')),
-                        DropdownMenuItem(value: 'panel', child: Text('طبلون عدادات')),
+                        DropdownMenuItem(value: 'common', child: Text('Common (عمود عادي)')),
+                        DropdownMenuItem(value: 'csp', child: Text('CSP')),
+                        DropdownMenuItem(value: 'hub', child: Text('HUB (طبلون/موزع)')),
                       ],
                       onChanged: (val) {
                         if (val != null) setDialogState(() => type = val);
@@ -195,80 +228,247 @@ class _MapHomePageState extends State<MapHomePage> {
     );
   }
 
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'csp':
+        case Icons.storage;
+        return Icons.settings_input_component;
+      case 'hub':
+        return Icons.account_balance_wallet;
+      default:
+        return Icons.location_pin;
+    }
+  }
+
+  Color _getColorForType(String type) {
+    switch (type) {
+      case 'csp':
+        return Colors.blue;
+      case 'hub':
+        return Colors.orange;
+      default:
+        return Colors.red;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('تطبيق مسح الشبكات الميداني'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: _determinePosition,
-            tooltip: 'موقعي الحالي',
-          ),
-        ],
-      ),
+      key: _scaffoldKey,
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
             const UserAccountsDrawerHeader(
               accountName: Text('مهندس المسح الميداني'),
-              accountEmail: Text('الحديدة، اليمن'),
+              accountEmail: Text('OZsurvey - نظام الخرائط'),
               currentAccountPicture: CircleAvatar(
                 backgroundColor: Colors.white,
-                child: Icon(Icons.electrical_services, size: 40, color: Colors.blueGrey),
+                child: Icon(Icons.map, size: 40, color: Colors.blueGrey),
               ),
             ),
             SwitchListTile(
-              title: const Text('عرض الأعمدة الكهربائية'),
-              value: _showPoles,
-              onChanged: (val) => setState(() => _showPoles = val),
+              title: const Text('عرض جميع العلامات على الخريطة'),
+              value: _showMarkers,
+              onChanged: (val) => setState(() => _showMarkers = val),
             ),
-            SwitchListTile(
-              title: const Text('عرض طبلونات العدادات'),
-              value: _showPanels,
-              onChanged: (val) => setState(() => _showPanels = val),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.download, color: Colors.green),
+              title: const Text('تصدير البيانات إلى CSV'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportToCSV();
+              },
             ),
           ],
         ),
       ),
-      body: FlutterMap(
-        mapController: _mapController,
-        options: MapOptions(
-          initialCenter: _currentCenter,
-          initialZoom: _currentZoom,
-          onTap: (tapPosition, point) {
-            _showMarkerDialog(tappedPoint: point);
-          },
-        ),
+      body: Stack(
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'br.com.devoz.OZsurvey',
-          ),
-          MarkerLayer(
-            markers: _markers.where((m) {
-              if (m.type == 'pole' && !_showPoles) return false;
-              if (m.type == 'panel' && !_showPanels) return false;
-              return true;
-            }).map((m) {
-              return Marker(
-                point: m.point,
-                width: 40,
-                height: 40,
-                child: GestureDetector(
-                  onTap: () => _showMarkerDialog(existingMarker: m),
-                  child: Icon(
-                    m.type == 'pole' ? Icons.location_pin : Icons.account_balance_wallet,
-                    color: m.type == 'pole' ? Colors.red : Colors.orange,
-                    size: 35,
-                  ),
+          // 1. الخريطة الأساسية
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _currentCenter,
+              initialZoom: _currentZoom,
+              onTap: (tapPosition, point) {
+                // النقر على الخريطة يضيف العنصر المحدد حالياً مباشرة
+                _showMarkerDialog(tappedPoint: point);
+              },
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.ozmap.survey',
+              ),
+              if (_showMarkers)
+                MarkerLayer(
+                  markers: _markers.map((m) {
+                    return Marker(
+                      point: m.point,
+                      width: 40,
+                      height: 40,
+                      child: GestureDetector(
+                        onTap: () => _showMarkerDialog(existingMarker: m),
+                        child: Icon(
+                          _getIconForType(m.type),
+                          color: _getColorForType(m.type),
+                          size: 38,
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
-              );
-            }).toList(),
+            ],
+          ),
+
+          // 2. الشريط العلوي (OZsurvey Header)
+          Positioned(
+            top: 40,
+            left: 16,
+            right: 16,
+            child: Container(
+              height: 55,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 5)],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.menu, color: Colors.black87),
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                  ),
+                  const Text(
+                    'OZsurvey',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+                  Row(
+                    children: const [
+                      Icon(Icons.location_on, color: Colors.green, size: 20),
+                      SizedBox(width: 4),
+                      Text('OZmap', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+
+          // 3. شريط الأدوات الجانبي الأيسر (اختيار نوع العنصر السريع)
+          Positioned(
+            top: 110,
+            left: 16,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+              ),
+              child: Column(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.location_pin),
+                    color: _selectedTool == 'common' ? Colors.red : Colors.grey,
+                    onPressed: () => setState(() => _selectedTool = 'common'),
+                    tooltip: 'Common',
+                  ),
+                  const Divider(height: 1),
+                  IconButton(
+                    icon: const Icon(Icons.settings_input_component),
+                    color: _selectedTool == 'csp' ? Colors.blue : Colors.grey,
+                    onPressed: () => setState(() => _selectedTool = 'csp'),
+                    tooltip: 'CSP',
+                  ),
+                  const Divider(height: 1),
+                  IconButton(
+                    icon: const Icon(Icons.account_balance_wallet),
+                    color: _selectedTool == 'hub' ? Colors.orange : Colors.grey,
+                    onPressed: () => setState(() => _selectedTool = 'hub'),
+                    tooltip: 'HUB',
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 4. الأزرار العائمة اليمنى (الطبقات وتحديد الموقع)
+          Positioned(
+            top: 110,
+            right: 16,
+            child: Column(
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'layerBtn',
+                  backgroundColor: Colors.green[200],
+                  child: const Icon(Icons.map, color: Colors.black87),
+                  onPressed: () {
+                    setState(() => _showMarkers = !_showMarkers);
+                  },
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.small(
+                  heroTag: 'gpsBtn',
+                  backgroundColor: Colors.green[200],
+                  child: const Icon(Icons.my_location, color: Colors.black87),
+                  onPressed: _determinePosition,
+                ),
+              ],
+            ),
+          ),
+
+          // 5. الشريط السفلي للأزرار الكبيرة (Common, CSP, HUB)
+          Positioned(
+            bottom: 20,
+            left: 16,
+            right: 16,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildBottomToolCard('Common', 'common', Icons.location_pin, Colors.red),
+                _buildBottomToolCard('CSP', 'csp', Icons.settings_input_component, Colors.blue),
+                _buildBottomToolCard('HUB', 'hub', Icons.account_balance_wallet, Colors.orange),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBottomToolCard(String label, String toolKey, IconData icon, Color color) {
+    bool isSelected = _selectedTool == toolKey;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTool = toolKey),
+      child: Container(
+        width: 105,
+        height: 75,
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.green[50] : Colors.white,
+          border: Border.all(color: isSelected ? Colors.green : Colors.grey.shade300, width: 2),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isSelected ? Colors.green[800] : Colors.black87,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

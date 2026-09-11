@@ -23,19 +23,27 @@ jobs:
           flutter-version: '3.19.x'
           channel: 'stable'
 
-      - name: Fix Project Name and Initialize
+      - name: Create Clean Project and Restore Code
         run: |
-          sed -i 's/^name:.*/name: mysurveyproject/' pubspec.yaml
-          flutter create . --org com.mysurvey --platforms=android --overwrite
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build Debug APK
-        run: flutter build apk --debug
+          # الاحتفاظ بملفاتك الموجودة في مكان آمن
+          mkdir -p backup_lib backup_assets
+          cp -r lib/* backup_lib/ 2>/dev/null || true
+          cp -r assets/* backup_assets/ 2>/dev/null || true
+          
+          # إنشاء مشروع جديد كلياً بالاسم الصحيح
+          flutter create mysurveyapp --org com.mysurvey --platforms=android
+          cd mysurveyapp
+          
+          # استعادة أكوادك داخل المشروع الجديد
+          rm -rf lib/*
+          cp -r ../backup_lib/* lib/ 2>/dev/null || true
+          cp -r ../backup_assets/* assets/ 2>/dev/null || true
+          
+          # بناء الـ APK مباشرة من المشروع الجديد النظيف
+          flutter build apk --debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: mysurveyapp/build/app/outputs/flutter-apk/app-debug.apk

@@ -1,4 +1,4 @@
-name: Build Flutter APK
+name: Build Flutter APK from Zip
 
 on:
   push:
@@ -23,32 +23,27 @@ jobs:
           flutter-version: '3.22.x'
           channel: 'stable'
 
-      - name: Create Clean Project and Restore Code
+      - name: Extract m.zip and Build
         run: |
-          mkdir -p backup_lib backup_assets
-          cp -r lib/* backup_lib/ 2>/dev/null || true
-          cp -r assets/* backup_assets/ 2>/dev/null || true
+          mkdir -p project_source
+          unzip -q m.zip -d project_source
           
-          flutter create mysurveyapp --org com.mysurvey --platforms=android
-          cd mysurveyapp
+          # الدخول للمجلد المستخرج
+          cd project_source
           
-          rm -rf lib/*
-          cp -r ../backup_lib/* lib/ 2>/dev/null || true
-          cp -r ../backup_assets/* assets/ 2>/dev/null || true
+          # إذا كان الملف المضغوط يحتوي على مجلد داخلي، ندخل إليه، وإلا نبقى في نفس المجلد
+          if [ -d "mysurveyapp" ]; then
+            cd mysurveyapp
+          elif [ -d "$(ls -d */ | head -n 1)" ]; then
+            cd "$(ls -d */ | head -n 1)"
+          fi
           
-          # رفع الحد الأدنى لإصدار الأندرويد ليتوافق مع الحزم والخرائط
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
-          
+          # التأكد من وجود ملف pubspec.yaml وبناء التطبيق
+          flutter pub get
           flutter build apk --debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: mysurveyapp/build/app/outputs/flutter-apk/app-debug.apk
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: mysurveyapp/build/app/outputs/flutter-apk/app-debug.apk
+          path: '**/build/app/outputs/flutter-apk/app-debug.apk'

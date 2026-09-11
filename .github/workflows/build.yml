@@ -28,12 +28,24 @@ jobs:
           mkdir -p backup_lib backup_assets
           cp -r lib/* backup_lib/ 2>/dev/null || true
           cp -r assets/* backup_assets/ 2>/dev/null || true
+          
           flutter create mysurveyapp --org com.mysurvey --platforms=android
           cd mysurveyapp
+          
           rm -rf lib/*
           cp -r ../backup_lib/* lib/ 2>/dev/null || true
           cp -r ../backup_assets/* assets/ 2>/dev/null || true
+          
+          # رفع الحد الأدنى لإصدار الأندرويد ليتوافق مع الحزم والخرائط
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+          
           flutter build apk --debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: mysurveyapp/build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

@@ -20,20 +20,29 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.x'
+          flutter-version: '3.22.x'
           channel: 'stable'
 
       - name: Create Clean Project and Restore Code
         run: |
-          # الاحتفاظ بملفاتك الموجودة في مكان آمن
           mkdir -p backup_lib backup_assets
           cp -r lib/* backup_lib/ 2>/dev/null || true
           cp -r assets/* backup_assets/ 2>/dev/null || true
           
-          # إنشاء مشروع جديد كلياً بالاسم الصحيح
           flutter create mysurveyapp --org com.mysurvey --platforms=android
           cd mysurveyapp
           
+          rm -rf lib/*
+          cp -r ../backup_lib/* lib/ 2>/dev/null || true
+          cp -r ../backup_assets/* assets/ 2>/dev/null || true
+          
+          flutter build apk --debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: mysurveyapp/build/app/outputs/flutter-apk/app-debug.apk
           # استعادة أكوادك داخل المشروع الجديد
           rm -rf lib/*
           cp -r ../backup_lib/* lib/ 2>/dev/null || true
